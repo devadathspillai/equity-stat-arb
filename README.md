@@ -4,40 +4,72 @@ A quantitative research platform for developing, testing, and validating equity 
 
 ---
 
-## Table of Contents
+## Results at a Glance
 
-- [Overview](#overview)
-- [Strategy Logic](#strategy-logic)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Configuration](#configuration)
-- [Methodology](#methodology)
-  - [Cointegration Screening](#cointegration-screening)
-  - [Kalman Filter Hedge Ratio](#kalman-filter-hedge-ratio)
-  - [Signal Generation](#signal-generation)
-  - [Transaction Cost Model](#transaction-cost-model)
-  - [Walk-Forward Validation](#walk-forward-validation)
-  - [Portfolio Construction](#portfolio-construction)
-  - [Analytics](#analytics)
-- [Key Findings](#key-findings)
-- [Output Files](#output-files)
-- [Dependencies](#dependencies)
+These figures come from the 10-year daily backtest on a 45-ticker universe (16 sector ETFs + 35 individual stocks).
+
+### Screening Funnel
+
+```
+990 candidate pairs
+ |
+ +-- Engle-Granger pre-filter (p < 0.10)       104 pass  ( 10.5%)
+      |
+      +-- Johansen trace confirmation            44 pass  (  4.4%)
+           |
+           +-- Rolling stability >= 55%           0 pass  (  0.0%)  <-- critical gate
+                |
+                +-- Relaxed fallback (no stability gate)   8 evaluated
+```
+
+The rolling stability filter is the hardest gate. No large-cap pair maintained statistically significant cointegration across 55% or more of rolling annual windows over a full decade. This means apparent cointegration in shorter windows is regime-specific, not structural.
 
 ---
 
-## Overview
+### Best Pair Performance (AAPL / XLP)
 
-Statistical arbitrage exploits temporary price divergences between cointegrated equity pairs. When two securities share a long-run equilibrium relationship, short-term deviations from that relationship are expected to revert, creating a tradeable spread.
+| Metric | Value | Benchmark / Context |
+|--------|-------|---------------------|
+| Sharpe Ratio | **0.22** | Acceptable range: > 1.0 for institutional deployment |
+| Sortino Ratio | **0.03** | Acceptable range: > 1.5 |
+| CAGR | **1.3%** | S&P 500 10yr avg: ~13% annualised |
+| Win Rate | **71.8%** | Strong signal quality, but see Profit Factor |
+| Profit Factor | **1.35** | Break-even = 1.0; institutional target >= 1.5 |
+| Max Drawdown | **-$16,645** | On $100,000 notional per leg |
+| Avg Holding Period | **6 days** | Consistent with short-term mean reversion |
+| Stop Rate | **0.0%** | Spread always reverted before stop triggered |
+| Monte Carlo p-value | **1.00** | p >= 0.05 = not distinguishable from random timing |
 
-This framework implements:
+> **Interpretation:** The win rate and profit factor look encouraging, but the Sharpe of 0.22 is well below the institutional threshold of 1.0, and a Monte Carlo p-value of 1.00 means the observed returns cannot be distinguished from random trade ordering. The strategy does not have a statistically verifiable edge in the large-cap universe over this period.
 
-1. Universe screening via a cascading four-stage cointegration filter
-2. Dynamic hedge ratio estimation using a Kalman filter
-3. Signal generation based on the Ornstein-Uhlenbeck half-life of the spread
-4. Regime-conditional trade execution (suppressed in high-volatility environments)
-5. Rigorous out-of-sample validation via rolling and anchored walk-forward
-6. Kelly-weighted multi-pair portfolio construction with spread correlation management
-7. 20+ performance metrics including VaR, CVaR, MAE/MFE, and Monte Carlo significance
+---
+
+### Walk-Forward Summary (AAPL / XLP)
+
+Out-of-sample results across six non-overlapping one-year test windows:
+
+| Method | Windows | Profitable | OOS Net PnL | Avg OOS Sharpe |
+|--------|---------|------------|-------------|----------------|
+| Rolling (fixed 3yr train) | 6 | **3 / 6** | +$49,957 | 0.47 |
+| Anchored (expanding train) | 6 | **4 / 6** | +$26,809 | 0.49 |
+
+Training-window Engle-Granger p-values ranged from 0.13 to 0.96, confirming the pair is not reliably cointegrated within its own fitting periods. Positive aggregate OOS PnL exists, but is not attributable to a stable statistical relationship.
+
+---
+
+### Portfolio Summary (8 pairs, $2,000,000 notional)
+
+| Metric | Value |
+|--------|-------|
+| Sharpe Ratio | **0.24** |
+| Sortino Ratio | **0.04** |
+| CAGR | **0.02%** |
+| Max Drawdown | **-$4,658** |
+| Win Rate | **63.7%** |
+| Profit Factor | **1.33** |
+| Kelly Fraction (avg) | **0.08** |
+| Total Friction Paid | **$5,698** |
+| Turnover | **30 round-trips/yr** |
 
 ---
 
@@ -57,36 +89,58 @@ For each pair (A, B):
 
 ---
 
-## Installation
+## Tech Stack
 
-**Requirements:** Python 3.10+
+| Tool | Version | Role |
+|------|---------|------|
+| Python | 3.12.4 | Runtime |
+| NumPy | 1.26.4 | Kalman filter, array operations, Monte Carlo |
+| pandas | 2.2.2 | Time series alignment, resampling, trade log |
+| statsmodels | 0.14.6 | Engle-Granger, Johansen, ADF, OLS regression |
+| SciPy | 1.14.0 | Statistical utilities |
+| yfinance | 1.4.1 | Market data (Yahoo Finance), daily + hourly OHLCV |
+| Matplotlib | 3.9.1 | All charts and dashboards |
+| seaborn | 0.13.2 | Correlation heatmaps, monthly PnL grid |
+| OpenBB | 4.7.2 | Extended data platform (equities, ETFs, macro) |
+
+Install all dependencies:
+
+```bash
+pip install numpy==1.26.4 pandas==2.2.2 statsmodels==0.14.6 scipy==1.14.0 \
+            yfinance==1.4.1 matplotlib==3.9.1 seaborn==0.13.2 openbb==4.7.2
+```
+
+Or install latest versions:
 
 ```bash
 pip install numpy pandas statsmodels scipy yfinance matplotlib seaborn openbb
 ```
 
-No API keys are required. Market data is sourced from Yahoo Finance via yfinance.
-
 ---
 
-## Usage
+## Installation and Usage
+
+**Requirements:** Python 3.10+
 
 ```bash
+git clone https://github.com/devadathspillai/equity-stat-arb.git
+cd equity-stat-arb
+pip install numpy pandas statsmodels scipy yfinance matplotlib seaborn openbb
 python stat_arb.py
 ```
 
-All charts and CSV outputs are written to the same directory as the script. Expected runtime: 8-15 minutes (990 pairs screened across a 45-ticker universe, rolling stability tests, Monte Carlo iterations).
+All charts and CSV outputs are written to the directory containing the script. Expected runtime: 8-15 minutes (990 pairs screened, rolling stability tests, Monte Carlo).
 
 ---
 
 ## Configuration
 
-All parameters are defined as constants near the top of `stat_arb.py`.
+All parameters are defined as constants at the top of `stat_arb.py`.
 
 ### Universe
 ```python
 SECTOR_ETFS   = ["XLK", "XLF", "XLE", ...]   # 16 sector ETFs
-SECTOR_STOCKS = {                              # 35 individual stocks across 7 sectors
+SECTOR_STOCKS = {                              # 35 individual stocks, 7 sectors
     "Financials":  ["JPM", "BAC", "WFC", ...],
     "Tech":        ["AAPL", "MSFT", "GOOGL", ...],
     ...
@@ -126,9 +180,9 @@ SLIP_BPS       = 5       # 5 basis points per side
 
 ### Walk-Forward
 ```python
-WF_TRAIN = 756    # training window (3 years)
-WF_TEST  = 252    # out-of-sample test window (1 year)
-WF_STEP  = 252    # step size between windows (1 year)
+WF_TRAIN = 756    # training window (3 years of daily bars)
+WF_TEST  = 252    # out-of-sample window (1 year)
+WF_STEP  = 252    # step between windows (1 year)
 ```
 
 ### Portfolio
@@ -136,7 +190,7 @@ WF_STEP  = 252    # step size between windows (1 year)
 PORT_CAPITAL       = 2_000_000   # total portfolio notional
 MAX_KELLY          = 0.25        # Kelly fraction cap
 HALF_KELLY         = True        # use half-Kelly for conservatism
-SPREAD_CORR_CUTOFF = 0.70        # correlation above which to penalize sizing
+SPREAD_CORR_CUTOFF = 0.70        # correlation threshold for size penalty
 ```
 
 ---
@@ -145,23 +199,23 @@ SPREAD_CORR_CUTOFF = 0.70        # correlation above which to penalize sizing
 
 ### Cointegration Screening
 
-The framework applies a four-stage cascading filter to identify tradeable pairs from the full C(n, 2) universe:
+The framework applies a four-stage cascading filter to the full C(n, 2) pair universe:
 
 **Stage 1 - Engle-Granger pre-filter**
 All pairs are tested with the Engle-Granger two-step test. Pairs with p-value above 0.10 are discarded. This fast O(n^2) sweep reduces the candidate set by roughly 90%.
 
 **Stage 2 - Johansen confirmation**
-Surviving pairs are tested with the Johansen trace statistic. Only pairs where the trace statistic exceeds the 95% critical value are retained. Agreement between two independent tests substantially reduces false positives.
+Surviving pairs are tested with the Johansen trace statistic (k_ar_diff=1, det_order=0). Only pairs where the trace statistic exceeds the 95% critical value are retained. Agreement between two independent tests substantially reduces false positives.
 
 **Stage 3 - Rolling stability**
 The Engle-Granger test is re-run on rolling 252-bar windows (stepped every 21 bars). A pair qualifies only if at least 55% of windows show significant cointegration. This is the most discriminating filter: it rejects pairs whose relationship is regime-specific rather than structural.
 
 **Stage 4 - Half-life filter**
-The OU half-life is estimated by regressing the first difference of the spread on its lag. Pairs with half-life below 5 or above 100 days are excluded. Below the minimum implies noise; above the maximum implies the spread reverts too slowly to be actionable on daily bars.
+The OU half-life is estimated by regressing the first difference of the spread on its lag. Pairs outside [5, 100] days are excluded. Below the minimum implies noise; above the maximum implies the spread reverts too slowly for daily-bar trading.
 
 ### Kalman Filter Hedge Ratio
 
-The hedge ratio is estimated dynamically using a scalar Kalman filter.
+The hedge ratio is estimated dynamically rather than using a static OLS fit.
 
 State-space model:
 ```
@@ -169,58 +223,47 @@ y(t)    = beta(t) * x(t) + eps(t)     observation noise ~ N(0, R_t)
 beta(t) = beta(t-1) + w(t)            process noise     ~ N(0, delta)
 ```
 
-The observation noise variance R_t is updated adaptively at each bar via EWMA of squared innovations. This allows the filter to self-tune to changing spread volatility without manual recalibration. The process noise `delta` controls how quickly the hedge ratio is permitted to drift between observations.
-
-Using a dynamic hedge ratio rather than static OLS captures changes in the pair relationship over time - shifts in relative market cap, changes in index composition, or post-event repricing.
+The observation noise R_t is updated adaptively via EWMA of squared innovations. The process noise `delta` controls how quickly the hedge ratio is permitted to drift. A dynamic beta captures shifts in the pair relationship that a static model would miss.
 
 ### Signal Generation
 
-The z-score normalization window is set adaptively as a function of the estimated OU half-life:
+The z-score window is set adaptively as a function of the OU half-life:
 
 ```
 window = max(10, round(half_life * 0.75))
 ```
 
-This keeps the normalization window proportional to the mean-reversion speed, avoiding over-smoothing for slow-reverting pairs and under-smoothing for fast-reverting ones.
-
 ### Transaction Cost Model
-
-Each round-trip trade incurs costs on both legs, on both entry and exit:
 
 ```
 cost = COMM_PER_SHARE * (shares_A + shares_B) * 2
      + (SLIP_BPS / 10000) * (notional_A + notional_B) * 2
 ```
 
-A sensitivity sweep across commission levels ($0 to $0.02/share) and slippage (0 to 20 bps) is available to quantify how robust a given pair's edge is to execution friction.
-
 ### Walk-Forward Validation
 
-Two walk-forward protocols are implemented:
+Two protocols are implemented. In both cases, the hedge ratio applied during the test period is the static OLS estimate from the corresponding training window only. The Kalman filter is not run on test data, enforcing a clean information barrier.
 
-**Rolling:** Fixed-size training window (756 bars) steps forward one year at a time. Parameters are re-estimated from scratch on each slice. The strategy is evaluated on the following year using those frozen parameters.
+**Rolling:** Fixed 756-bar training window steps forward one year at a time.
 
-**Anchored:** Training window is anchored at the start of history and expands by one year at each step. Tests whether performance improves as more data accumulates.
-
-In both protocols, the hedge ratio applied during the test period is the static OLS estimate from the corresponding training period. The Kalman filter is not run on test data. This enforces a clean information barrier between fitting and evaluation.
+**Anchored:** Training window is anchored at the dataset start and expands by one year at each step.
 
 ### Portfolio Construction
-
-Kelly criterion is applied to size positions across all qualified pairs:
 
 ```
 f* = (p * b - (1 - p)) / b
 
 where:
   p = empirical win rate
-  b = avg_win / avg_loss (payoff ratio)
+  b = avg_win / avg_loss
+
+weight(pair) = (f* / 2) * correlation_penalty
+allocation   = weight * (total_capital / n_pairs)
 ```
 
-Half-Kelly is used by default to account for estimation error. If two pair spreads have correlation above 0.70, the lower-Kelly pair's allocation is reduced by a factor proportional to the correlation, preventing concentration in structurally similar trades.
+Pairs with spread correlation above 0.70 have their allocation reduced proportionally to prevent concentration in structurally similar trades.
 
-### Analytics
-
-The following metrics are computed for each pair and for the aggregate portfolio:
+### Performance Metrics
 
 | Metric | Description |
 |--------|-------------|
@@ -231,55 +274,14 @@ The following metrics are computed for each pair and for the aggregate portfolio
 | Max DD Duration | Longest consecutive drawdown in trading days |
 | Win Rate | Fraction of trades closing with positive net PnL |
 | Payoff Ratio | avg_win / avg_loss |
-| Profit Factor | sum of wins / sum of losses |
-| Kelly Fraction | Optimal position size fraction (half-Kelly applied) |
-| VaR 95% | Value at Risk at 95% confidence on daily PnL distribution |
-| CVaR 95% | Expected shortfall beyond the VaR threshold |
+| Profit Factor | sum(wins) / sum(losses) |
+| Kelly Fraction | Optimal position size per Kelly formula (half-Kelly applied) |
+| VaR 95% | Value at Risk at 95% confidence on daily PnL |
+| CVaR 95% | Expected shortfall beyond VaR |
 | Avg Holding Period | Mean trade duration in calendar days |
-| Stop Rate | Fraction of trades exiting via stop-loss rather than mean reversion |
+| Stop Rate | Fraction of trades exiting via stop-loss |
 | Turnover | Round-trips per year |
-| MC p-value | Fraction of Monte Carlo shuffles that exceed the observed Sharpe |
-
----
-
-## Key Findings
-
-Results from the 10-year daily backtest on a 45-ticker universe (16 ETFs + 35 stocks).
-
-### Cointegration Screening
-
-| Stage | Pairs Remaining |
-|-------|----------------|
-| Engle-Granger pre-filter (p < 0.10) | 104 / 990 |
-| + Johansen confirmation | 44 / 990 |
-| + Rolling stability (>=55% of windows) | 0 / 990 |
-| Relaxed fallback (EG + Johansen, no stability gate) | 8 evaluated |
-
-No pair in the large-cap universe maintained significant cointegration across 55% or more of rolling annual windows over the full 10-year period. This indicates that cointegration observed in shorter windows is regime-specific rather than structural.
-
-### Backtest Results (relaxed filter, 8 pairs)
-
-| Pair | Sharpe | Sortino | CAGR | Win Rate | Profit Factor | MC p-value |
-|------|--------|---------|------|----------|---------------|-----------|
-| AAPL/XLP | 0.22 | 0.03 | 1.3% | 71.8% | 1.35 | 1.00 |
-| AAPL/KO | 0.15 | 0.03 | 1.7% | 54.7% | 1.23 | 1.00 |
-
-MC p-values of 1.00 indicate the observed Sharpe ratios are statistically indistinguishable from random trade timing. No pair achieved a Sharpe above 0.25 after applying regime conditioning and transaction costs.
-
-### Walk-Forward (AAPL/XLP, best Sharpe pair)
-
-| Method | Windows | Profitable Windows | Aggregate OOS PnL |
-|--------|---------|-------------------|------------------|
-| Rolling | 6 | 3 / 6 | +$49,957 |
-| Anchored | 6 | 4 / 6 | +$26,809 |
-
-Training-window EG p-values ranged from 0.13 to 0.96 across all windows, confirming the pair does not exhibit stable cointegration in its own fitting periods. Any positive OOS PnL is not attributable to a reliable statistical relationship.
-
-### Research Conclusion
-
-Large-cap US equity cointegration is not a durable structural phenomenon over 10-year horizons. The rolling stability filter is the critical discriminating test: pairs that appear cointegrated in a given 2-year window frequently fail the relationship in adjacent windows across different market regimes.
-
-The framework correctly identifies that in-sample results from short lookbacks overstate the robustness of the strategy, and provides the tooling to quantify how and when relationships break down.
+| MC p-value | Fraction of Monte Carlo shuffles exceeding observed Sharpe |
 
 ---
 
@@ -293,22 +295,7 @@ All outputs are written to the same directory as the script.
 | `02_dashboard_{A}_{B}.png` | 8-panel pair dashboard: prices, Kalman beta, spread, z-score, equity curve, holding periods, MAE/MFE, per-trade PnL |
 | `03_wf_{A}_{B}.png` | Rolling vs anchored walk-forward: OOS PnL, Sharpe, and equity curve per window |
 | `04_portfolio_dashboard.png` | Portfolio equity, drawdown, rolling Sharpe, pair contributions, Kelly weights, monthly PnL heatmap |
-| `all_pairs_screened.csv` | Full screening results for all EG+Johansen survivors |
+| `all_pairs_screened.csv` | Full results for all EG+Johansen survivors |
 | `qualified_pairs.csv` | Pairs passing the full four-stage filter |
 | `wf_rolling_{A}_{B}.csv` | Per-window rolling walk-forward metrics |
 | `wf_anchored_{A}_{B}.csv` | Per-window anchored walk-forward metrics |
-
----
-
-## Dependencies
-
-| Package | Min Version | Purpose |
-|---------|-------------|---------|
-| numpy | 1.26 | Numerical computation, Kalman filter |
-| pandas | 2.0 | Time series manipulation |
-| statsmodels | 0.14 | Engle-Granger, Johansen, ADF, OLS |
-| scipy | 1.12 | Statistical utilities |
-| yfinance | 0.2 | Market data via Yahoo Finance |
-| matplotlib | 3.8 | Charts and dashboards |
-| seaborn | 0.13 | Correlation heatmaps |
-| openbb | 4.0 | Extended data platform (optional) |
